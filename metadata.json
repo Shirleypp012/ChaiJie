@@ -1,0 +1,6 @@
+{
+  "name": "BUV AI 爆款内容逆向实验室",
+  "description": "中国美妆品牌内部运营团队专用的爆款视频AI逆向分析与内容复刻工具，帮助小红书/抖音/品牌策划运营人员一键拆解爆款并生成复刻方案。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
