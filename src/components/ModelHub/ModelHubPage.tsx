@@ -1,350 +1,406 @@
-import { useState } from 'react';
-import { motion } from 'motion/react';
+import { useState, useMemo } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { 
-  Database, ShieldCheck, RefreshCw, Star, 
-  Settings2, Eye, EyeOff, Radio, Check, 
-  AlertCircle, HelpCircle, HardDrive, Key, Link2, Clock, RotateCw
+  Search, ShieldCheck, Sparkles, Filter, Star, 
+  Image as ImageIcon, Video as VideoIcon, Bookmark, 
+  Clock, CheckCircle2, Layers, Zap, Lightbulb, RefreshCw 
 } from 'lucide-react';
-import { ModelProvider, ProviderCategory } from '../../types';
+import { ModelItem, ModelProvider, ProviderCategory } from '../../types';
+import { initialModelData } from './modelData';
+import ModelCard from './ModelCard';
+import ModelDetailDrawer from './ModelDetailDrawer';
 
 interface ModelHubPageProps {
-  providers: ModelProvider[];
-  onUpdateProvider: (id: string, updated: Partial<ModelProvider>) => void;
-  onSetDefault: (id: string, category: ProviderCategory) => void;
+  providers?: ModelProvider[];
+  onUpdateProvider?: (id: string, updated: Partial<ModelProvider>) => void;
+  onSetDefault?: (id: string, category: ProviderCategory) => void;
 }
+
+type TabCategory = 'image' | 'video' | 'default' | 'recent' | 'favorite';
 
 export default function ModelHubPage({ 
   providers, 
   onUpdateProvider, 
   onSetDefault 
 }: ModelHubPageProps) {
-  const [activeCategory, setActiveCategory] = useState<ProviderCategory>('llm');
-  const [showApiKeys, setShowApiKeys] = useState<Record<string, boolean>>({});
-  const [testingStatus, setTestingStatus] = useState<Record<string, 'idle' | 'testing' | 'success' | 'failed'>>({});
+  const [models, setModels] = useState<ModelItem[]>(initialModelData);
+  const [activeTab, setActiveTab] = useState<TabCategory>('image');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedTagFilter, setSelectedTagFilter] = useState<string | null>(null);
+  const [selectedModel, setSelectedModel] = useState<ModelItem | null>(null);
 
-  const categories: { id: ProviderCategory; label: string; desc: string }[] = [
-    { id: 'llm', label: '大语言模型 (LLM)', desc: '驱动 Video DNA、营销策略分析与智能文案生成' },
-    { id: 'image', label: '图片生成模型 (Image)', desc: '驱动高保真产品海报图与镜头背景 Prompt 生成' },
-    { id: 'video', label: '视频生成模型 (Video)', desc: '驱动电影级镜头视频渲染、微距动作升格生成' },
-    { id: 'editor', label: '视频剪辑引擎 (Editor)', desc: '驱动分镜自动对齐、音视频卡点、字幕与素材合成' }
+  // Statistics calculation
+  const stats = useMemo(() => {
+    const imageCount = models.filter(m => m.category === 'image').length;
+    const videoCount = models.filter(m => m.category === 'video').length;
+    const defaultCount = models.filter(m => m.isDefault).length;
+    const connectedCount = models.filter(m => m.status === 'connected').length;
+    return { imageCount, videoCount, defaultCount, connectedCount, total: models.length };
+  }, [models]);
+
+  // Sidebar Category Navigation Options
+  const categories: { id: TabCategory; label: string; icon: any; count?: number; desc: string }[] = [
+    { 
+      id: 'image', 
+      label: '图片生成', 
+      icon: ImageIcon, 
+      count: stats.imageCount,
+      desc: '电商主图、小红书海报、全景爆款KV生成引擎' 
+    },
+    { 
+      id: 'video', 
+      label: '视频生成', 
+      icon: VideoIcon, 
+      count: stats.videoCount,
+      desc: '电影级分镜、短视频卡点与微距升格渲染' 
+    },
+    { 
+      id: 'default', 
+      label: '默认模型', 
+      icon: Star, 
+      count: stats.defaultCount,
+      desc: '全平台自动化流水线默认优先调用的核心模型' 
+    },
+    { 
+      id: 'recent', 
+      label: '最近使用', 
+      icon: Clock, 
+      desc: '工作流分析复刻中近期活跃调用的AI模型' 
+    },
+    { 
+      id: 'favorite', 
+      label: '收藏模型', 
+      icon: Bookmark, 
+      count: models.filter(m => m.isFavorite).length,
+      desc: '团队已设为高频精选推荐的模型资源' 
+    }
   ];
 
-  const handleTestConnection = (providerId: string) => {
-    setTestingStatus(prev => ({ ...prev, [providerId]: 'testing' }));
-    
-    // Simulate connection testing
+  // All available tags for quick filter chips
+  const allTags = useMemo(() => {
+    const tagsSet = new Set<string>();
+    models.forEach(m => m.tags.forEach(t => tagsSet.add(t)));
+    return Array.from(tagsSet);
+  }, [models]);
+
+  // Filter models based on activeTab, searchQuery, and selectedTagFilter
+  const filteredModels = useMemo(() => {
+    return models.filter(m => {
+      // Category Tab filter
+      if (activeTab === 'image' && m.category !== 'image') return false;
+      if (activeTab === 'video' && m.category !== 'video') return false;
+      if (activeTab === 'default' && !m.isDefault) return false;
+      if (activeTab === 'recent' && (!m.lastUsedTime || m.lastUsedTime === '未配置')) return false;
+      if (activeTab === 'favorite' && !m.isFavorite) return false;
+
+      // Search Query filter (matches name, vendor, description, capabilities, scenarios)
+      if (searchQuery.trim() !== '') {
+        const q = searchQuery.toLowerCase();
+        const matchesName = m.name.toLowerCase().includes(q);
+        const matchesVendor = m.vendor.toLowerCase().includes(q);
+        const matchesDesc = m.description.toLowerCase().includes(q);
+        const matchesCap = m.capabilities.some(c => c.toLowerCase().includes(q));
+        const matchesScen = m.scenarios.some(s => s.toLowerCase().includes(q));
+        const matchesTag = m.tags.some(t => t.toLowerCase().includes(q));
+        if (!matchesName && !matchesVendor && !matchesDesc && !matchesCap && !matchesScen && !matchesTag) {
+          return false;
+        }
+      }
+
+      // Selected Tag Filter
+      if (selectedTagFilter && !m.tags.includes(selectedTagFilter)) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [models, activeTab, searchQuery, selectedTagFilter]);
+
+  // Handler for setting a model as default
+  const handleSetDefault = (id: string, category: 'image' | 'video' | 'llm' | 'editor') => {
+    setModels(prev => prev.map(m => {
+      if (m.category === category) {
+        return { ...m, isDefault: m.id === id };
+      }
+      return m;
+    }));
+
+    // If external default handler provided, call it
+    if (onSetDefault) {
+      onSetDefault(id, category as ProviderCategory);
+    }
+  };
+
+  // Handler for toggling favorite status
+  const handleToggleFavorite = (id: string) => {
+    setModels(prev => prev.map(m => {
+      if (m.id === id) {
+        return { ...m, isFavorite: !m.isFavorite };
+      }
+      return m;
+    }));
+  };
+
+  // Handler for retesting connection status
+  const handleRetestStatus = (id: string) => {
     setTimeout(() => {
-      const isSuccess = Math.random() > 0.15; // 85% success rate
-      setTestingStatus(prev => ({ 
-        ...prev, 
-        [providerId]: isSuccess ? 'success' : 'failed' 
+      const isSuccess = Math.random() > 0.1;
+      setModels(prev => prev.map(m => {
+        if (m.id === id) {
+          return { ...m, status: isSuccess ? 'connected' : 'failed' };
+        }
+        return m;
       }));
-      onUpdateProvider(providerId, { 
-        status: isSuccess ? 'connected' : 'failed' 
-      });
-    }, 1500);
+    }, 800);
   };
 
-  const toggleShowApiKey = (id: string) => {
-    setShowApiKeys(prev => ({ ...prev, [id]: !prev[id] }));
+  // Handler for updating model properties from drawer
+  const handleUpdateModel = (id: string, updated: Partial<ModelItem>) => {
+    setModels(prev => prev.map(m => {
+      if (m.id === id) {
+        const newModel = { ...m, ...updated };
+        if (selectedModel && selectedModel.id === id) {
+          setSelectedModel(newModel);
+        }
+        return newModel;
+      }
+      return m;
+    }));
   };
-
-  const filteredProviders = providers.filter(p => p.category === activeCategory);
 
   return (
-    <div className="space-y-8" id="model-hub-container">
-      {/* Intro Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-neutral-200 pb-6" id="hub-header">
+    <div className="space-y-8 pb-12" id="model-hub-management-container">
+      
+      {/* Intro Top Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-neutral-200 dark:border-white/10 pb-6" id="hub-management-header">
         <div>
-          <h2 className="text-2xl font-bold text-neutral-950 tracking-tight flex items-center gap-2">
-            <Settings2 className="w-6 h-6 text-neutral-900" />
-            模型配置中心 (Model Hub)
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[10px] uppercase font-mono font-bold tracking-widest bg-neutral-900 dark:bg-violet-600 text-white px-2.5 py-0.5 rounded-full">
+              ENTERPRISE AI MODEL HUB
+            </span>
+          </div>
+          <h2 className="text-2xl font-bold text-neutral-950 dark:text-white tracking-tight flex items-center gap-2">
+            <Sparkles className="w-6 h-6 text-violet-600 dark:text-violet-400" />
+            AI 模型管理中心
           </h2>
-          <p className="text-sm text-neutral-500 mt-1">
-            统一配置和管理整个逆向实验室的工作流引擎，无缝接入全球顶级 AI 模型。
+          <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
+            全方位的视觉与音视频 AI 引擎中心，运营人员可清晰掌控全套模型的场景契合度、速度、成本与画质表现。
           </p>
         </div>
-        <div className="flex items-center gap-2 text-xs bg-emerald-50 text-emerald-800 border border-emerald-200 px-3 py-1.5 rounded-full font-mono">
-          <ShieldCheck className="w-4 h-4" />
-          <span>所有 API 密钥均储存在本地沙盒，保障品牌数据安全</span>
+
+        <div className="flex items-center gap-2 text-xs bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30 px-3.5 py-2 rounded-2xl font-mono shrink-0">
+          <ShieldCheck className="w-4 h-4 text-emerald-500" />
+          <span>沙盒引擎运行正常 • 全部模型可即时调用</span>
         </div>
       </div>
 
-      {/* Grid Layout: Left categories, Right cards */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-8" id="hub-main-grid">
-        {/* Left Sidebar Menu */}
-        <div className="space-y-2 lg:col-span-1" id="hub-sidebar-tabs">
-          {categories.map((cat) => (
-            <button
-              key={cat.id}
-              onClick={() => setActiveCategory(cat.id)}
-              className={`w-full text-left p-4 rounded-2xl border transition-all flex flex-col gap-1 ${
-                activeCategory === cat.id
-                  ? 'bg-neutral-900 text-white border-neutral-950 shadow-sm'
-                  : 'bg-white hover:bg-neutral-50 text-neutral-700 border-neutral-200/80'
-              }`}
-              id={`hub-tab-${cat.id}`}
-            >
-              <span className="text-sm font-semibold">{cat.label}</span>
-              <span className={`text-[11px] leading-relaxed font-light ${
-                activeCategory === cat.id ? 'text-neutral-400' : 'text-neutral-500'
-              }`}>
-                {cat.desc}
-              </span>
-            </button>
-          ))}
+      {/* Top Search & Statistics Cards Bar */}
+      <div className="space-y-4" id="hub-top-bar">
+        {/* Search Input Bar */}
+        <div className="flex flex-col md:flex-row items-center justify-between gap-4 bg-white dark:bg-slate-950/60 p-4 rounded-3xl border border-neutral-200/80 dark:border-white/10 shadow-sm">
+          <div className="relative w-full md:w-96">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="搜索模型名称、厂商、能力（如：商品一致性、海报、Imagen）..."
+              className="w-full bg-neutral-50 dark:bg-white/5 border border-neutral-200 dark:border-white/10 rounded-2xl pl-10 pr-4 py-2.5 text-xs text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:border-violet-500 transition-colors"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-neutral-400 hover:text-neutral-700 dark:hover:text-white"
+              >
+                清除
+              </button>
+            )}
+          </div>
 
-          {/* Quick Stats Widget */}
-          <div className="rounded-2xl p-4 bg-neutral-50 border border-neutral-200 mt-6 space-y-3">
-            <h4 className="text-xs font-semibold text-neutral-800 flex items-center gap-1.5">
-              <Database className="w-3.5 h-3.5 text-neutral-700" />
-              实验室引擎统计
-            </h4>
-            <div className="space-y-2 text-xs font-mono">
-              <div className="flex justify-between text-neutral-600">
-                <span>集成 Provider 总数:</span>
-                <span className="font-semibold text-neutral-900">{providers.length}</span>
-              </div>
-              <div className="flex justify-between text-neutral-600">
-                <span>已连接 API:</span>
-                <span className="font-semibold text-emerald-600">
-                  {providers.filter(p => p.status === 'connected').length} 个活跃 (Active)
-                </span>
-              </div>
-              <div className="flex justify-between text-neutral-600">
-                <span>默认调用模型:</span>
-                <span className="font-semibold text-neutral-900">
-                  {providers.filter(p => p.isDefault).length} 个启用 (Enabled)
-                </span>
-              </div>
+          {/* Quick Stats Counter Chips (4 required metrics) */}
+          <div className="flex items-center gap-2 md:gap-4 overflow-x-auto w-full md:w-auto pb-1 md:pb-0" id="top-stats-counters">
+            <div className="flex items-center gap-2 bg-neutral-50 dark:bg-white/5 px-3.5 py-2 rounded-2xl border border-neutral-200/60 dark:border-white/5 text-xs">
+              <span className="text-neutral-500 dark:text-neutral-400 text-[11px]">图片模型:</span>
+              <span className="font-mono font-bold text-neutral-900 dark:text-white text-sm">{stats.imageCount}</span>
+            </div>
+            <div className="flex items-center gap-2 bg-neutral-50 dark:bg-white/5 px-3.5 py-2 rounded-2xl border border-neutral-200/60 dark:border-white/5 text-xs">
+              <span className="text-neutral-500 dark:text-neutral-400 text-[11px]">视频模型:</span>
+              <span className="font-mono font-bold text-neutral-900 dark:text-white text-sm">{stats.videoCount}</span>
+            </div>
+            <div className="flex items-center gap-2 bg-neutral-50 dark:bg-white/5 px-3.5 py-2 rounded-2xl border border-neutral-200/60 dark:border-white/5 text-xs">
+              <span className="text-neutral-500 dark:text-neutral-400 text-[11px]">默认模型:</span>
+              <span className="font-mono font-bold text-violet-600 dark:text-violet-400 text-sm">{stats.defaultCount}</span>
+            </div>
+            <div className="flex items-center gap-2 bg-emerald-50/80 dark:bg-emerald-950/30 px-3.5 py-2 rounded-2xl border border-emerald-200/80 dark:border-emerald-500/30 text-xs">
+              <span className="text-emerald-700 dark:text-emerald-300 text-[11px]">在线模型:</span>
+              <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 text-sm">{stats.connectedCount}</span>
             </div>
           </div>
         </div>
 
-        {/* Right Area: Provider Configuration Cards */}
-        <div className="lg:col-span-3 space-y-6" id="hub-providers-list">
-          {filteredProviders.map((provider) => {
-            const isTesting = testingStatus[provider.id] === 'testing';
-            const testResult = testingStatus[provider.id];
-
-            return (
-              <motion.div
-                key={provider.id}
-                layoutId={`provider-card-${provider.id}`}
-                className="bg-white rounded-3xl border border-neutral-200/80 p-6 shadow-sm hover:shadow-md transition-all space-y-6 relative overflow-hidden"
-                id={`provider-box-${provider.id}`}
-              >
-                {/* Glowing border for default provider */}
-                {provider.isDefault && (
-                  <div className="absolute top-0 left-0 right-0 h-1.5 bg-neutral-900" />
-                )}
-
-                {/* Card Header */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-neutral-100 pb-4">
-                  <div className="flex items-center gap-4">
-                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center font-bold text-white text-sm shadow-sm bg-gradient-to-tr ${provider.logo}`}>
-                      {provider.name.charAt(0)}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-bold text-neutral-900 text-base">{provider.name}</h3>
-                        {provider.isDefault && (
-                          <span className="flex items-center gap-1 text-[10px] bg-neutral-900 text-white px-2 py-0.5 rounded-full font-mono">
-                            <Star className="w-2.5 h-2.5 fill-current text-amber-400" />
-                            DEFAULT
-                          </span>
-                        )}
-                      </div>
-                      <span className="text-xs text-neutral-400 font-mono">ID: {provider.id}</span>
-                    </div>
-                  </div>
-
-                  {/* Top quick state and default actions */}
-                  <div className="flex items-center gap-2 shrink-0">
-                    {/* Status Pill */}
-                    <span className={`text-[11px] font-mono px-3 py-1 rounded-full border flex items-center gap-1.5 ${
-                      provider.status === 'connected'
-                        ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                        : provider.status === 'failed'
-                        ? 'bg-rose-50 border-rose-200 text-rose-800'
-                        : 'bg-neutral-50 border-neutral-200 text-neutral-500'
-                    }`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${
-                        provider.status === 'connected'
-                          ? 'bg-emerald-500 animate-pulse'
-                          : provider.status === 'failed'
-                          ? 'bg-rose-500'
-                          : 'bg-neutral-400'
-                      }`} />
-                      {provider.status === 'connected' ? '已连接 (Connected)' : provider.status === 'failed' ? '连接失败 (Failed)' : '未配置 (Pending)'}
-                    </span>
-
-                    {/* Set Default Button */}
-                    {!provider.isDefault && (
-                      <button
-                        onClick={() => onSetDefault(provider.id, provider.category)}
-                        className="text-xs bg-neutral-50 text-neutral-700 hover:bg-neutral-100 px-3 py-1.5 rounded-xl border border-neutral-200 font-medium flex items-center gap-1 transition-all"
-                      >
-                        <Star className="w-3 h-3 text-neutral-500" />
-                        设为默认
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* Configuration Inputs Forms */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-5" id={`fields-${provider.id}`}>
-                  {/* API Key */}
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-neutral-700 flex items-center gap-1">
-                      <Key className="w-3.5 h-3.5 text-neutral-500" />
-                      API Key
-                    </label>
-                    <div className="relative">
-                      <input
-                        type={showApiKeys[provider.id] ? 'text' : 'password'}
-                        value={provider.apiKey}
-                        onChange={(e) => onUpdateProvider(provider.id, { apiKey: e.target.value })}
-                        placeholder="sk-................................"
-                        className="w-full bg-neutral-50 border border-neutral-200 rounded-xl px-3.5 py-2 text-xs font-mono text-neutral-950 focus:outline-none focus:border-neutral-900 transition-colors pr-10"
-                      />
-                      <button
-                        onClick={() => toggleShowApiKey(provider.id)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-700"
-                      >
-                        {showApiKeys[provider.id] ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Endpoint */}
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-neutral-700 flex items-center gap-1">
-                      <Link2 className="w-3.5 h-3.5 text-neutral-500" />
-                      API Endpoint
-                    </label>
-                    <input
-                      type="text"
-                      value={provider.endpoint}
-                      onChange={(e) => onUpdateProvider(provider.id, { endpoint: e.target.value })}
-                      placeholder="https://api.example.com/v1"
-                      className="w-full bg-neutral-50 border border-neutral-200 rounded-xl px-3.5 py-2 text-xs font-mono text-neutral-950 focus:outline-none focus:border-neutral-900 transition-colors"
-                    />
-                  </div>
-
-                  {/* Model Selector & Region */}
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-neutral-700 flex items-center gap-1">
-                      <Radio className="w-3.5 h-3.5 text-neutral-500" />
-                      默认模型配置
-                    </label>
-                    <select
-                      value={provider.selectedModel}
-                      onChange={(e) => onUpdateProvider(provider.id, { selectedModel: e.target.value })}
-                      className="w-full bg-neutral-50 border border-neutral-200 rounded-xl px-3 py-2 text-xs font-mono text-neutral-900 focus:outline-none focus:border-neutral-900 transition-colors"
-                    >
-                      {provider.availableModels.map(model => (
-                        <option key={model} value={model}>{model}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Region or Workspace */}
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-neutral-700 flex items-center gap-1">
-                      <HardDrive className="w-3.5 h-3.5 text-neutral-500" />
-                      {provider.category === 'editor' ? '云端 Workspace 文件夹' : '服务部署 Region (可选)'}
-                    </label>
-                    <input
-                      type="text"
-                      value={provider.region || ''}
-                      onChange={(e) => onUpdateProvider(provider.id, { region: e.target.value })}
-                      placeholder={provider.category === 'editor' ? 'capcut-project-workspace-1' : 'us-east-1 / auto'}
-                      className="w-full bg-neutral-50 border border-neutral-200 rounded-xl px-3.5 py-2 text-xs font-mono text-neutral-950 focus:outline-none focus:border-neutral-900 transition-colors"
-                    />
-                  </div>
-
-                  {/* Timeout / Retry Panel */}
-                  <div className="col-span-1 md:col-span-2 grid grid-cols-2 gap-4 bg-neutral-50 rounded-2xl p-4 border border-neutral-100">
-                    <div className="space-y-1">
-                      <label className="text-[10px] uppercase font-mono tracking-wider text-neutral-500 flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
-                        网络连接超时 (秒)
-                      </label>
-                      <input
-                        type="number"
-                        value={provider.timeout}
-                        onChange={(e) => onUpdateProvider(provider.id, { timeout: parseInt(e.target.value) || 30 })}
-                        className="w-full bg-white border border-neutral-200 rounded-xl px-3 py-1.5 text-xs font-mono text-neutral-950 focus:outline-none focus:border-neutral-900"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] uppercase font-mono tracking-wider text-neutral-500 flex items-center gap-1">
-                        <RotateCw className="w-3 h-3" />
-                        错误自动重试次数
-                      </label>
-                      <input
-                        type="number"
-                        value={provider.retryCount}
-                        onChange={(e) => onUpdateProvider(provider.id, { retryCount: parseInt(e.target.value) || 3 })}
-                        className="w-full bg-white border border-neutral-200 rounded-xl px-3 py-1.5 text-xs font-mono text-neutral-950 focus:outline-none focus:border-neutral-900"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Test connection triggering */}
-                <div className="flex items-center justify-between pt-4 border-t border-neutral-100 text-xs">
-                  <div className="text-neutral-400 font-mono flex items-center gap-1">
-                    {provider.apiKey ? (
-                      <span className="text-emerald-500 flex items-center gap-1 font-sans">
-                        <Check className="w-3.5 h-3.5" /> 密钥有效
-                      </span>
-                    ) : (
-                      <span className="text-amber-500 flex items-center gap-1 font-sans">
-                        <AlertCircle className="w-3.5 h-3.5" /> 未配置 API 密钥
-                      </span>
-                    )}
-                  </div>
-
-                  <button
-                    disabled={isTesting}
-                    onClick={() => handleTestConnection(provider.id)}
-                    className={`px-4 py-2 rounded-xl text-xs font-medium font-mono transition-all flex items-center gap-2 ${
-                      isTesting
-                        ? 'bg-neutral-100 text-neutral-400 cursor-not-allowed'
-                        : testResult === 'success'
-                        ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
-                        : testResult === 'failed'
-                        ? 'bg-rose-500 hover:bg-rose-600 text-white'
-                        : 'bg-neutral-900 hover:bg-neutral-800 text-white'
-                    }`}
-                  >
-                    {isTesting ? (
-                      <>
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                        正在测试中 (TESTING...)
-                      </>
-                    ) : testResult === 'success' ? (
-                      <>
-                        <Check className="w-3.5 h-3.5" />
-                        连接成功 (CONNECTED)
-                      </>
-                    ) : testResult === 'failed' ? (
-                      <>
-                        <AlertCircle className="w-3.5 h-3.5" />
-                        测试失败 (FAILED)
-                      </>
-                    ) : (
-                      '测试接口连通性'
-                    )}
-                  </button>
-                </div>
-              </motion.div>
-            );
-          })}
+        {/* Quick Tag Filters Scroll Bar */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs scrollbar-none" id="tag-filter-chips">
+          <span className="text-neutral-400 text-[11px] font-mono mr-1 shrink-0 flex items-center gap-1">
+            <Filter className="w-3 h-3" /> 常用标签:
+          </span>
+          <button
+            onClick={() => setSelectedTagFilter(null)}
+            className={`px-3 py-1 rounded-xl text-[11px] font-medium transition-all shrink-0 cursor-pointer ${
+              selectedTagFilter === null
+                ? 'bg-neutral-900 dark:bg-white text-white dark:text-neutral-950 font-semibold shadow-sm'
+                : 'bg-neutral-100 dark:bg-white/5 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-white/10'
+            }`}
+          >
+            全部标签
+          </button>
+          {allTags.map((tag) => (
+            <button
+              key={tag}
+              onClick={() => setSelectedTagFilter(selectedTagFilter === tag ? null : tag)}
+              className={`px-3 py-1 rounded-xl text-[11px] font-medium transition-all shrink-0 cursor-pointer ${
+                selectedTagFilter === tag
+                  ? 'bg-neutral-900 dark:bg-white text-white dark:text-neutral-950 font-semibold shadow-sm'
+                  : 'bg-neutral-100 dark:bg-white/5 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-white/10'
+              }`}
+            >
+              {tag}
+            </button>
+          ))}
         </div>
       </div>
+
+      {/* Main Layout Grid: Left Categories, Right Model Cards Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-8" id="hub-main-grid">
+        
+        {/* Left Categories Menu Sidebar */}
+        <div className="space-y-2 lg:col-span-1" id="hub-left-sidebar">
+          {categories.map((cat) => {
+            const IconComponent = cat.icon;
+            const isActive = activeTab === cat.id;
+
+            return (
+              <button
+                key={cat.id}
+                onClick={() => {
+                  setActiveTab(cat.id);
+                  setSelectedTagFilter(null);
+                }}
+                className={`w-full text-left p-4 rounded-3xl border transition-all flex flex-col gap-1.5 relative overflow-hidden group cursor-pointer ${
+                  isActive
+                    ? 'bg-neutral-950 dark:bg-violet-600/90 text-white border-neutral-950 dark:border-violet-500 shadow-lg'
+                    : 'bg-white dark:bg-slate-950/40 hover:bg-neutral-50 dark:hover:bg-white/[0.04] text-neutral-800 dark:text-neutral-200 border-neutral-200/80 dark:border-white/5'
+                }`}
+                id={`sidebar-cat-${cat.id}`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <IconComponent className={`w-4 h-4 ${isActive ? 'text-amber-300' : 'text-neutral-500 dark:text-neutral-400'}`} />
+                    <span className="text-sm font-bold tracking-tight">{cat.label}</span>
+                  </div>
+                  {cat.count !== undefined && (
+                    <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-semibold ${
+                      isActive 
+                        ? 'bg-white/20 text-white' 
+                        : 'bg-neutral-100 dark:bg-white/10 text-neutral-600 dark:text-neutral-400'
+                    }`}>
+                      {cat.count} 个
+                    </span>
+                  )}
+                </div>
+
+                <p className={`text-[11px] leading-relaxed ${
+                  isActive ? 'text-neutral-300' : 'text-neutral-500 dark:text-neutral-400'
+                }`}>
+                  {cat.desc}
+                </p>
+              </button>
+            );
+          })}
+
+          {/* Operational Recommendation Box */}
+          <div className="p-4 rounded-3xl bg-gradient-to-br from-violet-500/10 via-purple-500/10 to-indigo-500/10 border border-violet-200 dark:border-violet-500/20 space-y-2 mt-6">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-violet-700 dark:text-violet-300">
+              <Lightbulb className="w-4 h-4 text-amber-500 fill-amber-400 shrink-0" />
+              <span>AI 运营选型指南</span>
+            </div>
+            <p className="text-[11px] text-neutral-600 dark:text-neutral-300 leading-relaxed font-sans">
+              根据您的美妆爆款流转需求，建议主用 <span className="font-semibold text-neutral-900 dark:text-white">Imagen 4 Ultra</span>（图）与 <span className="font-semibold text-neutral-900 dark:text-white">Seedance 2.0</span>（视）作为标准高保真渲染默认引擎。
+            </p>
+          </div>
+        </div>
+
+        {/* Right Area: Model Cards Grid */}
+        <div className="lg:col-span-3 space-y-6" id="hub-cards-area">
+          
+          {/* Contextual Active Category Title & Count */}
+          <div className="flex items-center justify-between border-b border-neutral-200/80 dark:border-white/5 pb-3">
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-bold text-neutral-900 dark:text-white uppercase tracking-wider">
+                {categories.find(c => c.id === activeTab)?.label} 资源库
+              </h3>
+              <span className="text-xs text-neutral-400 font-mono">
+                (共 {filteredModels.length} 个模型)
+              </span>
+            </div>
+
+            {selectedTagFilter && (
+              <span className="text-xs bg-violet-50 dark:bg-violet-950/40 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-500/30 px-2.5 py-1 rounded-full flex items-center gap-1">
+                已筛选: {selectedTagFilter}
+                <button onClick={() => setSelectedTagFilter(null)} className="hover:text-rose-500 ml-1">×</button>
+              </span>
+            )}
+          </div>
+
+          {/* Grid View */}
+          {filteredModels.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6" id="models-grid">
+              {filteredModels.map((model) => (
+                <ModelCard
+                  key={model.id}
+                  model={model}
+                  onSelect={(m) => setSelectedModel(m)}
+                  onSetDefault={handleSetDefault}
+                  onToggleFavorite={handleToggleFavorite}
+                  onRetestStatus={handleRetestStatus}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="p-12 text-center rounded-3xl border border-neutral-200 dark:border-white/10 bg-white dark:bg-slate-950/30 space-y-3">
+              <div className="w-12 h-12 rounded-2xl bg-neutral-100 dark:bg-white/5 flex items-center justify-center mx-auto text-neutral-400">
+                <Search className="w-6 h-6" />
+              </div>
+              <p className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">未找到符合条件的模型</p>
+              <p className="text-xs text-neutral-400">尝试修改搜索关键字或清除筛选条件</p>
+              <button
+                onClick={() => {
+                  setSearchQuery('');
+                  setSelectedTagFilter(null);
+                  setActiveTab('image');
+                }}
+                className="mt-2 text-xs bg-neutral-900 text-white px-4 py-2 rounded-xl font-medium"
+              >
+                重置所有筛选
+              </button>
+            </div>
+          )}
+
+        </div>
+      </div>
+
+      {/* Model Detail Drawer Slide-Over */}
+      <AnimatePresence>
+        {selectedModel && (
+          <ModelDetailDrawer
+            model={selectedModel}
+            onClose={() => setSelectedModel(null)}
+            onUpdateModel={handleUpdateModel}
+            onSetDefault={handleSetDefault}
+            onToggleFavorite={handleToggleFavorite}
+          />
+        )}
+      </AnimatePresence>
+
     </div>
   );
 }

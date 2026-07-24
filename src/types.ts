@@ -89,3 +89,42 @@ export interface ModelProvider {
   status: 'connected' | 'unconfigured' | 'testing' | 'failed';
   isDefault: boolean;
 }
+
+export interface ModelRatings {
+  quality: number; // 1-5 scale
+  speed: number;   // 1-5 scale
+  cost: number;    // 1-5 scale
+  recommendation: number; // 1-5 scale
+}
+
+export interface ModelItem {
+  id: string;
+  name: string;
+  vendor: string;
+  category: 'image' | 'video' | 'llm' | 'editor';
+  logoGradient: string;
+  version: string;
+  updateTime: string;
+  badgeType: '稳定版' | '预览版' | '测试版';
+  description: string;
+  tags: string[];
+  scenarios: string[];
+  ratings: ModelRatings;
+  capabilities: string[];
+  outputSizes: string[];
+  outputFormats: string[];
+  recommendedWorkflow: string;
+  costDesc: string;
+  status: 'connected' | 'pending' | 'failed';
+  isDefault: boolean;
+  isFavorite?: boolean;
+  lastUsedTime?: string;
+  
+  // Advanced Config (Collapsed by default)
+  apiKey?: string;
+  baseUrl?: string;
+  modelCode?: string;
+  timeoutSeconds?: number;
+  maxRetries?: number;
+  concurrency?: number;
+}
